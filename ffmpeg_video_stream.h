@@ -74,6 +74,7 @@ private:
 	Error _ensure_plane_textures();
 	Error _ensure_output_texture();
 	RID _create_uniform_set(const RID &p_texture_rd_rid);
+	RID _create_complete_uniform_set();
 	void _upload_plane_images();
 	void _clear_texture_internal();
 	void _convert_internal();

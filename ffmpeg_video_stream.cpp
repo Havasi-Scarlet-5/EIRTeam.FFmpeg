@@ -458,15 +458,12 @@ Error YUVGPUConverter::_ensure_plane_textures() {
 		}
 
 		// Texture didn't exist or was invalid, re-create it
-
-		// free existing texture if needed
 		if (yuv_plane_textures[i].is_valid()) {
 			FREE_RD_RID(yuv_plane_textures[i]);
 		}
 
 		RDTextureFormatC new_format;
 		new_format.format = RenderingDevice::DATA_FORMAT_R8_UNORM;
-		// chroma planes are half the size of the luma plane
 		new_format.width = i == 0 || i == 3 ? frame_size.width : Math::ceil(frame_size.width / 2.0f);
 		new_format.height = i == 0 || i == 3 ? frame_size.height : Math::ceil(frame_size.height / 2.0f);
 		new_format.depth = 1;
@@ -484,11 +481,8 @@ Error YUVGPUConverter::_ensure_plane_textures() {
 #endif
 		yuv_plane_textures[i] = rd->texture_create(new_format_c, texture_view);
 
-		if (yuv_planes_uniform_sets[i].is_valid()) {
-			FREE_RD_RID(yuv_planes_uniform_sets[i]);
-		}
-
-		yuv_planes_uniform_sets[i] = _create_uniform_set(yuv_plane_textures[i]);
+		// REMOVED: No individual uniform sets for new shader approach
+		// Individual uniform sets are not needed with the new shader
 	}
 
 	return OK;
@@ -519,7 +513,6 @@ Error YUVGPUConverter::_ensure_output_texture() {
 	out_texture_format.depth = 1;
 	out_texture_format.array_layers = 1;
 	out_texture_format.mipmaps = 1;
-	// RD::TEXTURE_USAGE_CAN_UPDATE_BIT not needed since we won't update it from the CPU
 	out_texture_format.usage_bits = RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_COLOR_ATTACHMENT_BIT | RD::TEXTURE_USAGE_STORAGE_BIT | RD::TEXTURE_USAGE_CAN_COPY_TO_BIT;
 
 #ifdef GDEXTENSION
@@ -533,10 +526,7 @@ Error YUVGPUConverter::_ensure_output_texture() {
 	out_texture->set_texture_rd_rid(rd->texture_create(out_texture_format_c, texture_view));
 	rd->texture_clear(out_texture->get_texture_rd_rid(), Color(0, 0, 0, 0), 0, 1, 0, 1);
 
-	if (out_uniform_set.is_valid()) {
-		FREE_RD_RID(out_uniform_set);
-	}
-	out_uniform_set = _create_uniform_set(out_texture->get_texture_rd_rid());
+	// REMOVED: No individual output uniform set for new shader approach
 	return OK;
 }
 
@@ -602,6 +592,92 @@ void YUVGPUConverter::convert() {
 	RenderingServer::get_singleton()->call_on_render_thread(callable_mp(this, &YUVGPUConverter::_convert_internal));
 }
 
+RID YUVGPUConverter::_create_complete_uniform_set() {
+#ifdef GDEXTENSION
+	TypedArray<RDUniform> uniforms;
+
+	// Binding 0 - Y plane
+	Ref<RDUniform> uniform_y;
+	uniform_y.instantiate();
+	uniform_y->set_binding(0);
+	uniform_y->set_uniform_type(RD::UNIFORM_TYPE_IMAGE);
+	uniform_y->add_id(yuv_plane_textures[0]);
+	uniforms.push_back(uniform_y);
+
+	// Binding 1 - U plane
+	Ref<RDUniform> uniform_u;
+	uniform_u.instantiate();
+	uniform_u->set_binding(1);
+	uniform_u->set_uniform_type(RD::UNIFORM_TYPE_IMAGE);
+	uniform_u->add_id(yuv_plane_textures[1]);
+	uniforms.push_back(uniform_u);
+
+	// Binding 2 - V plane
+	Ref<RDUniform> uniform_v;
+	uniform_v.instantiate();
+	uniform_v->set_binding(2);
+	uniform_v->set_uniform_type(RD::UNIFORM_TYPE_IMAGE);
+	uniform_v->add_id(yuv_plane_textures[2]);
+	uniforms.push_back(uniform_v);
+
+	// Binding 3 - A plane
+	Ref<RDUniform> uniform_a;
+	uniform_a.instantiate();
+	uniform_a->set_binding(3);
+	uniform_a->set_uniform_type(RD::UNIFORM_TYPE_IMAGE);
+	uniform_a->add_id(yuv_plane_textures[3]);
+	uniforms.push_back(uniform_a);
+
+	// Binding 4 - Output texture
+	Ref<RDUniform> uniform_out;
+	uniform_out.instantiate();
+	uniform_out->set_binding(4);
+	uniform_out->set_uniform_type(RD::UNIFORM_TYPE_IMAGE);
+	uniform_out->add_id(out_texture->get_texture_rd_rid());
+	uniforms.push_back(uniform_out);
+
+#else
+	Vector<RD::Uniform> uniforms;
+
+	// Binding 0 - Y plane
+	RD::Uniform uniform_y;
+	uniform_y.uniform_type = RD::UNIFORM_TYPE_IMAGE;
+	uniform_y.binding = 0;
+	uniform_y.append_id(yuv_plane_textures[0]);
+	uniforms.push_back(uniform_y);
+
+	// Binding 1 - U plane
+	RD::Uniform uniform_u;
+	uniform_u.uniform_type = RD::UNIFORM_TYPE_IMAGE;
+	uniform_u.binding = 1;
+	uniform_u.append_id(yuv_plane_textures[1]);
+	uniforms.push_back(uniform_u);
+
+	// Binding 2 - V plane
+	RD::Uniform uniform_v;
+	uniform_v.uniform_type = RD::UNIFORM_TYPE_IMAGE;
+	uniform_v.binding = 2;
+	uniform_v.append_id(yuv_plane_textures[2]);
+	uniforms.push_back(uniform_v);
+
+	// Binding 3 - A plane
+	RD::Uniform uniform_a;
+	uniform_a.uniform_type = RD::UNIFORM_TYPE_IMAGE;
+	uniform_a.binding = 3;
+	uniform_a.append_id(yuv_plane_textures[3]);
+	uniforms.push_back(uniform_a);
+
+	// Binding 4 - Output texture
+	RD::Uniform uniform_out;
+	uniform_out.uniform_type = RD::UNIFORM_TYPE_IMAGE;
+	uniform_out.binding = 4;
+	uniform_out.append_id(out_texture->get_texture_rd_rid());
+	uniforms.push_back(uniform_out);
+#endif
+
+	return RS::get_singleton()->get_rendering_device()->uniform_set_create(uniforms, shader, 0);
+}
+
 void YUVGPUConverter::_convert_internal() {
 	// First we must ensure everything we need exists
 	_ensure_pipeline();
@@ -617,6 +693,9 @@ void YUVGPUConverter::_convert_internal() {
 	push_constant_data.resize(sizeof(push_constant));
 	memcpy(push_constant_data.ptrw(), &push_constant, push_constant_data.size());
 
+	// Create a single uniform set with all bindings
+	RID complete_uniform_set = _create_complete_uniform_set();
+
 	ComputeListID compute_list = rd->compute_list_begin();
 	rd->compute_list_bind_compute_pipeline(compute_list, pipeline);
 
@@ -625,13 +704,15 @@ void YUVGPUConverter::_convert_internal() {
 #else
 	rd->compute_list_set_push_constant(compute_list, push_constant_data.ptr(), push_constant_data.size());
 #endif
-	rd->compute_list_bind_uniform_set(compute_list, yuv_planes_uniform_sets[0], 0);
-	rd->compute_list_bind_uniform_set(compute_list, yuv_planes_uniform_sets[1], 1);
-	rd->compute_list_bind_uniform_set(compute_list, yuv_planes_uniform_sets[2], 2);
-	rd->compute_list_bind_uniform_set(compute_list, yuv_planes_uniform_sets[3], 3);
-	rd->compute_list_bind_uniform_set(compute_list, out_uniform_set, 4);
+
+	// Bind only the single uniform set to set 0
+	rd->compute_list_bind_uniform_set(compute_list, complete_uniform_set, 0);
+
 	rd->compute_list_dispatch(compute_list, Math::ceil(frame_size.x / 8.0f), Math::ceil(frame_size.y / 8.0f), 1);
 	rd->compute_list_end();
+
+	// Clean up the temporary uniform set
+	FREE_RD_RID(complete_uniform_set);
 }
 
 Ref<Texture2D> YUVGPUConverter::get_output_texture() const {

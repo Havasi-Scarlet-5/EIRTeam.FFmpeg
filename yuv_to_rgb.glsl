@@ -6,10 +6,10 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 // Our textures
 layout(r8, set = 0, binding = 0) uniform restrict readonly image2D tex_y;
-layout(r8, set = 1, binding = 0) uniform restrict readonly image2D tex_u;
-layout(r8, set = 2, binding = 0) uniform restrict readonly image2D tex_v;
-layout(r8, set = 3, binding = 0) uniform restrict readonly image2D tex_a;
-layout(rgba8, set = 4, binding = 0) uniform restrict writeonly image2D output_image;
+layout(r8, set = 0, binding = 1) uniform restrict readonly image2D tex_u;
+layout(r8, set = 0, binding = 2) uniform restrict readonly image2D tex_v;
+layout(r8, set = 0, binding = 3) uniform restrict readonly image2D tex_a;
+layout(rgba8, set = 0, binding = 4) uniform restrict writeonly image2D output_image;
 
 layout(push_constant, std430) uniform Params {
 	bool use_alpha;
